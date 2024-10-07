@@ -2,50 +2,67 @@ import Global from '/docs/cmd/_global.mdx';
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# spp model remove
+# spp model apply
 
-Deletes a document understanding model
+Applies (or syncs) a trained document understanding model to a document library
 
 ## Usage
 
 ```sh
-m365 spp model remove [options]
+m365 spp model apply [options]
 ```
 
 ## Options
 
 ```md definition-list
 `-u, --siteUrl <siteUrl>`
-: The URL of the content center site.
+: The URL of the site where the library is located.
 
 `-i, --id [id]`
 : The unique ID of the model to delete. Specify either `id` or `title` but not both.
 
 `-t, --title [title]`
-: The display name (case-sensitive) of the model to remove. Specify either `id` or `title` but not both.
+: The display name (case-sensitive) of the model to apply. Specify either `id` or `title` but not both.
 
-`-f --force`
-: Don't prompt for confirming removing the model.
+`--listTitle [listTitle]`
+: The title of the library on which to apply the model. Specify either `listTitle`, `listId`, or `listUrl` but not multiple.
+
+`--listId [listId]`
+: The ID of the library on which to apply the model. Specify either `listTitle`, `listId`, or `listUrl` but not multiple.
+
+`--listUrl [listUrl]`
+: Server or web-relative URL of the library on which to apply the model. Specify either `listTitle`, `listId`, or `listUrl` but not multiple.
+
+`--defaultView`
+: Specifies whether to set the new model view as the library default.
 ```
 
 <Global />
 
-## Remarks
-
-Note that this model will be removed from all libraries before it can be deleted.
-
 ## Examples
 
-Delete a SharePoint Premium document understanding model using the model’s UniqueId.
+Applies a trained document understanding model by id to a document library based on the list title.
 
 ```sh
-m365 spp model remove --siteUrl "https://contoso.sharepoint.com/sites/ContentCenter" --id "7645e69d-21fb-4a24-a17a-9bdfa7cb63dc"
+m365 spp model apply --webUrl "https://contoso.sharepoint.com" --id "7645e69d-21fb-4a24-a17a-9bdfa7cb63dc" --listTitle "Shared Documents"
 ```
 
-Delete a SharePoint Premium document understanding model using the model’s title.
+Applies a trained document understanding model by title to a document library based on the list title.
 
 ```sh
-m365 spp model remove --siteUrl "https://contoso.sharepoint.com/sites/ContentCenter" --title "climicrosoft365Model.classifier"
+m365 spp model apply --webUrl "https://contoso.sharepoint.com" --title "ModelExample" --listTitle "Shared Documents"
+```
+
+Applies a trained document understanding model by title to a document library based on the list url.
+
+```sh
+m365 spp model apply --webUrl "https://contoso.sharepoint.com" --title "ModelExample" --listUrl "/Shared Documents"
+```
+
+Applies a trained document understanding model by title to a document library based on the list id.
+
+```sh
+m365 spp model apply --webUrl "https://contoso.sharepoint.com" --title "ModelExample" --listId "b4cfa0d9-b3d7-49ae-a0f0-f14ffdd005f7"
 ```
 
 ## Response

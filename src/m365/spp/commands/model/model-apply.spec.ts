@@ -11,9 +11,9 @@ import { pid } from '../../../../utils/pid.js';
 import { session } from '../../../../utils/session.js';
 import { sinonUtil } from '../../../../utils/sinonUtil.js';
 import commands from '../../commands.js';
-import command from './model-remove.js';
+import command from './model-apply.js';
 
-describe(commands.MODEL_REMOVE, () => {
+describe(commands.MODEL_APPLY, () => {
   let log: string[];
   let logger: Logger;
   let commandInfo: CommandInfo;
@@ -56,7 +56,7 @@ describe(commands.MODEL_REMOVE, () => {
   });
 
   it('has correct name', () => {
-    assert.strictEqual(command.name, commands.MODEL_REMOVE);
+    assert.strictEqual(command.name, commands.MODEL_APPLY);
   });
 
   it('has a description', () => {

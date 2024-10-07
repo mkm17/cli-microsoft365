@@ -17,16 +17,19 @@ interface Options extends GlobalOptions {
   siteUrl: string;
   id?: string;
   title?: string;
-  force?: boolean;
+  listTitle?: string;
+  listId?: string;
+  listUrl?: string;
+  defaultView?: boolean;
 }
 
 class SppModelRemoveCommand extends SpoCommand {
   public get name(): string {
-    return commands.MODEL_REMOVE;
+    return commands.MODEL_APPLY;
   }
 
   public get description(): string {
-    return 'Deletes a document understanding model';
+    return 'Applies (or syncs) a trained document understanding model to a document library';
   }
 
   constructor() {
@@ -44,7 +47,10 @@ class SppModelRemoveCommand extends SpoCommand {
       Object.assign(this.telemetryProperties, {
         id: typeof args.options.id !== 'undefined',
         title: typeof args.options.title !== 'undefined',
-        force: !!args.options.force
+        listTitle: typeof args.options.listTitle !== 'undefined',
+        listId: typeof args.options.listId !== 'undefined',
+        listUrl: typeof args.options.listUrl !== 'undefined',
+        defaultView: !!args.options.defaultView
       });
     });
   }
@@ -61,7 +67,16 @@ class SppModelRemoveCommand extends SpoCommand {
         option: '-t, --title [title]'
       },
       {
-        option: '-f --force'
+        option: '--listTitle [listTitle]'
+      },
+      {
+        option: '--listId [listId]'
+      },
+      {
+        option: '--listUrl [listUrl]'
+      },
+      {
+        option: '--defaultView'
       }
     );
   }
@@ -80,39 +95,43 @@ class SppModelRemoveCommand extends SpoCommand {
 
   #initOptionSets(): void {
     this.optionSets.push({ options: ['id', 'title'] });
+    this.optionSets.push({ options: ['listTitle', 'listId ', 'listUrl'] });
   }
 
   #initTypes(): void {
-    this.types.string.push('siteUrl', 'id', 'title');
-    this.types.boolean.push('force');
+    this.types.string.push('siteUrl', 'id', 'title', 'listTitle', 'listId ', 'listUrl');
+    this.types.boolean.push('defaultView');
   }
 
   public async commandAction(logger: Logger, args: CommandArgs): Promise<void> {
     try {
-      if (!args.options.force) {
-        const confirmationResult = await cli.promptForConfirmation({ message: `Are you sure you want to remove the model '${args.options.id || args.options.title}'?` });
-
-        if (!confirmationResult) {
-          return;
-        }
-      }
-
       if (this.verbose) {
-        await logger.log(`Removing model from ${args.options.siteUrl}...`);
+        await logger.log(`Applying ${args.options.id || args.options.title} model to ${args.options.listId || args.options.listUrl || args.options.listTitle}...`);
       }
 
       const siteUrl = urlUtil.removeTrailingSlashes(args.options.siteUrl);
-      await spp.assertSiteIsContentCenter(siteUrl);
 
       const requestOptions: CliRequestOptions = {
-        url: this.getCorrectRequestUrl(siteUrl, args),
+        url: `${siteUrl}/_api/machinelearning/publications`,
         headers: {
-          accept: 'application/json;odata=nometadata',
-          'if-match': '*'
+          accept: 'application/json;odata=nometadata'
+        },
+        data: {
+          Publications: {
+            results: [
+              {
+                ModelUniqueId: args.options.id,
+                TargetSiteUrl: args.options.title,
+                TargetWebServerRelativeUrl: args.options.listId,
+                TargetLibraryServerRelativeUrl: args.options.listTitle,
+                ViewOption: args.options.listUrl
+              }
+            ]
+          }
         }
       };
 
-      await request.delete(requestOptions);
+      await request.post(requestOptions);
     }
     catch (err: any) {
       this.handleRejectedODataJsonPromise(err);
