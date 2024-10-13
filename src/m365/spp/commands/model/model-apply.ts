@@ -1,12 +1,12 @@
-import { cli } from '../../../../cli/cli.js';
 import { Logger } from '../../../../cli/Logger.js';
 import GlobalOptions from '../../../../GlobalOptions.js';
 import request, { CliRequestOptions } from '../../../../request.js';
 import { formatting } from '../../../../utils/formatting.js';
-import { spp } from '../../../../utils/spp.js';
+import { spp, SppModel } from '../../../../utils/spp.js';
 import { urlUtil } from '../../../../utils/urlUtil.js';
 import { validation } from '../../../../utils/validation.js';
 import SpoCommand from '../../../base/SpoCommand.js';
+import { ListInstance } from '../../../spo/commands/list/ListInstance.js';
 import commands from '../../commands.js';
 
 interface CommandArgs {
@@ -58,7 +58,10 @@ class SppModelRemoveCommand extends SpoCommand {
   #initOptions(): void {
     this.options.unshift(
       {
-        option: '-u, --siteUrl <siteUrl>'
+        option: '-u, --webUrl <webUrl>'
+      },
+      {
+        option: '--siteUrl <siteUrl>'
       },
       {
         option: '-i, --id [id]'
@@ -88,7 +91,12 @@ class SppModelRemoveCommand extends SpoCommand {
           return `${args.options.id} is not a valid GUID`;
         }
 
-        return validation.isValidSharePointUrl(args.options.siteUrl);
+        if (args.options.listId &&
+          !validation.isValidGuid(args.options.listId)) {
+          return `${args.options.listId} in option listId is not a valid GUID`;
+        }
+
+        return validation.isValidSharePointUrl(args.options.siteUrl) && validation.isValidSharePointUrl(args.options.webUrl);
       }
     );
   }
@@ -99,7 +107,7 @@ class SppModelRemoveCommand extends SpoCommand {
   }
 
   #initTypes(): void {
-    this.types.string.push('siteUrl', 'id', 'title', 'listTitle', 'listId ', 'listUrl');
+    this.types.string.push('siteUrl', 'webUrl', 'id', 'title', 'listTitle', 'listId ', 'listUrl');
     this.types.boolean.push('defaultView');
   }
 
@@ -110,6 +118,10 @@ class SppModelRemoveCommand extends SpoCommand {
       }
 
       const siteUrl = urlUtil.removeTrailingSlashes(args.options.siteUrl);
+      await spp.assertSiteIsContentCenter(siteUrl);
+
+      const model = await this.getModel(siteUrl, args);
+      const listInstance = await this.getListInfo(args);
 
       const requestOptions: CliRequestOptions = {
         url: `${siteUrl}/_api/machinelearning/publications`,
@@ -120,11 +132,11 @@ class SppModelRemoveCommand extends SpoCommand {
           Publications: {
             results: [
               {
-                ModelUniqueId: args.options.id,
-                TargetSiteUrl: args.options.title,
-                TargetWebServerRelativeUrl: args.options.listId,
-                TargetLibraryServerRelativeUrl: args.options.listTitle,
-                ViewOption: args.options.listUrl
+                ModelUniqueId: model.UniqueId,
+                TargetSiteUrl: siteUrl,
+                TargetWebServerRelativeUrl: urlUtil.getServerRelativePath(args.options.webUrl, ''),
+                TargetLibraryServerRelativeUrl: urlUtil.getServerRelativePath(args.options.webUrl, listInstance.Url),
+                ViewOption: args.options.defaultView ? "NewViewAsDefault" : undefined
               }
             ]
           }
@@ -138,12 +150,48 @@ class SppModelRemoveCommand extends SpoCommand {
     }
   }
 
+  private getModel(siteUrl: string, args: CommandArgs): Promise<SppModel> {
+    const requestOptions: CliRequestOptions = {
+      url: this.getCorrectRequestUrl(siteUrl, args),
+      headers: {
+        accept: 'application/json;odata=nometadata'
+      }
+    };
+
+    return request.get(requestOptions);
+  }
+
   private getCorrectRequestUrl(siteUrl: string, args: CommandArgs): string {
     if (args.options.id) {
       return `${siteUrl}/_api/machinelearning/models/getbyuniqueid('${args.options.id}')`;
     }
 
     return `${siteUrl}/_api/machinelearning/models/getbytitle('${formatting.encodeQueryParameter(args.options.title!)}')`;
+  }
+
+  private getListInfo(args: CommandArgs): Promise<ListInstance> {
+    let requestUrl = `${args.options.webUrl}/_api/web`;
+
+    if (args.options.listId) {
+      requestUrl += `/lists(guid'${formatting.encodeQueryParameter(args.options.listId)}')`;
+    }
+    else if (args.options.listTitle) {
+      requestUrl += `/lists/getByTitle('${formatting.encodeQueryParameter(args.options.listTitle)}')`;
+    }
+    else if (args.options.listUrl) {
+      const listServerRelativeUrl: string = urlUtil.getServerRelativePath(args.options.webUrl, args.options.listUrl);
+      requestUrl += `/GetList('${formatting.encodeQueryParameter(listServerRelativeUrl)}')`;
+    }
+
+    const requestOptions: CliRequestOptions = {
+      url: requestUrl,
+      headers: {
+        'accept': 'application/json;odata=nometadata'
+      },
+      responseType: 'json'
+    };
+
+    return request.get<ListInstance>(requestOptions);
   }
 }
 

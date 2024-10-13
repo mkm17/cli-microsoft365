@@ -42,6 +42,6 @@ describe('utils/spp', () => {
     });
 
     await spp.assertSiteIsContentCenter(siteUrl);
-    await assert(stubGet.calledOnce);
+    assert(stubGet.calledOnce);
   });
 });
