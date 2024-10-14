@@ -15,15 +15,18 @@ interface CommandArgs {
 
 interface Options extends GlobalOptions {
   siteUrl: string;
+  webUrl: string
   id?: string;
   title?: string;
   listTitle?: string;
   listId?: string;
   listUrl?: string;
-  defaultView?: boolean;
+  viewOption?: string;
 }
 
 class SppModelRemoveCommand extends SpoCommand {
+  public readonly viewOptions: string[] = ['NewViewAsDefault', 'DoNotChangeDefault', 'TileViewAsDefault'];
+
   public get name(): string {
     return commands.MODEL_APPLY;
   }
@@ -50,7 +53,7 @@ class SppModelRemoveCommand extends SpoCommand {
         listTitle: typeof args.options.listTitle !== 'undefined',
         listId: typeof args.options.listId !== 'undefined',
         listUrl: typeof args.options.listUrl !== 'undefined',
-        defaultView: !!args.options.defaultView
+        viewOption: typeof args.options.viewOption !== 'undefined'
       });
     });
   }
@@ -79,7 +82,8 @@ class SppModelRemoveCommand extends SpoCommand {
         option: '--listUrl [listUrl]'
       },
       {
-        option: '--defaultView'
+        option: '--viewOption [viewOption]',
+        autocomplete: this.viewOptions
       }
     );
   }
@@ -96,6 +100,12 @@ class SppModelRemoveCommand extends SpoCommand {
           return `${args.options.listId} in option listId is not a valid GUID`;
         }
 
+        if (typeof args.options.viewOption !== 'undefined') {
+          if (!this.viewOptions.some(viewOption => viewOption.toLocaleLowerCase() === args.options.viewOption?.toLowerCase())) {
+            return `The value of parameter zoneEmphasis must be ${this.viewOptions.join(', ')}`;
+          }
+        }
+
         return validation.isValidSharePointUrl(args.options.siteUrl) && validation.isValidSharePointUrl(args.options.webUrl);
       }
     );
@@ -103,12 +113,11 @@ class SppModelRemoveCommand extends SpoCommand {
 
   #initOptionSets(): void {
     this.optionSets.push({ options: ['id', 'title'] });
-    this.optionSets.push({ options: ['listTitle', 'listId ', 'listUrl'] });
+    this.optionSets.push({ options: ['listTitle', 'listId', 'listUrl'] });
   }
 
   #initTypes(): void {
-    this.types.string.push('siteUrl', 'webUrl', 'id', 'title', 'listTitle', 'listId ', 'listUrl');
-    this.types.boolean.push('defaultView');
+    this.types.string.push('siteUrl', 'webUrl', 'id', 'title', 'listTitle', 'listId', 'listUrl', 'viewOption');
   }
 
   public async commandAction(logger: Logger, args: CommandArgs): Promise<void> {
@@ -126,17 +135,19 @@ class SppModelRemoveCommand extends SpoCommand {
       const requestOptions: CliRequestOptions = {
         url: `${siteUrl}/_api/machinelearning/publications`,
         headers: {
-          accept: 'application/json;odata=nometadata'
+          accept: 'application/json;odata=nometadata',
+          "Content-Type": 'application/json;odata=verbose'
         },
         data: {
+          __metadata: { type: 'Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData' },
           Publications: {
             results: [
               {
                 ModelUniqueId: model.UniqueId,
-                TargetSiteUrl: siteUrl,
+                TargetSiteUrl: args.options.webUrl,
                 TargetWebServerRelativeUrl: urlUtil.getServerRelativePath(args.options.webUrl, ''),
-                TargetLibraryServerRelativeUrl: urlUtil.getServerRelativePath(args.options.webUrl, listInstance.Url),
-                ViewOption: args.options.defaultView ? "NewViewAsDefault" : undefined
+                TargetLibraryServerRelativeUrl: listInstance.RootFolder.ServerRelativeUrl,
+                ViewOption: args.options.viewOption ? args.options.viewOption : "NewViewAsDefault"
               }
             ]
           }
@@ -155,7 +166,8 @@ class SppModelRemoveCommand extends SpoCommand {
       url: this.getCorrectRequestUrl(siteUrl, args),
       headers: {
         accept: 'application/json;odata=nometadata'
-      }
+      },
+      responseType: 'json'
     };
 
     return request.get(requestOptions);
@@ -184,14 +196,14 @@ class SppModelRemoveCommand extends SpoCommand {
     }
 
     const requestOptions: CliRequestOptions = {
-      url: requestUrl,
+      url: `${requestUrl}?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`,
       headers: {
         'accept': 'application/json;odata=nometadata'
       },
       responseType: 'json'
     };
 
-    return request.get<ListInstance>(requestOptions);
+    return request.get<any>(requestOptions);
   }
 }
 
