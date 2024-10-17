@@ -6,7 +6,6 @@ import { spp, SppModel } from '../../../../utils/spp.js';
 import { urlUtil } from '../../../../utils/urlUtil.js';
 import { validation } from '../../../../utils/validation.js';
 import SpoCommand from '../../../base/SpoCommand.js';
-import { ListInstance } from '../../../spo/commands/list/ListInstance.js';
 import commands from '../../commands.js';
 
 interface CommandArgs {
@@ -14,7 +13,7 @@ interface CommandArgs {
 }
 
 interface Options extends GlobalOptions {
-  siteUrl: string;
+  contentCenterUrl: string;
   webUrl: string
   id?: string;
   title?: string;
@@ -22,6 +21,13 @@ interface Options extends GlobalOptions {
   listId?: string;
   listUrl?: string;
   viewOption?: string;
+}
+
+interface DocumentLibraryInstance {
+  BaseTemplate: number;
+  RootFolder: {
+    ServerRelativeUrl: string;
+  };
 }
 
 class SppModelRemoveCommand extends SpoCommand {
@@ -64,7 +70,7 @@ class SppModelRemoveCommand extends SpoCommand {
         option: '-u, --webUrl <webUrl>'
       },
       {
-        option: '--siteUrl <siteUrl>'
+        option: '--contentCenterUrl <contentCenterUrl>'
       },
       {
         option: '-i, --id [id]'
@@ -92,21 +98,27 @@ class SppModelRemoveCommand extends SpoCommand {
     this.validators.push(
       async (args: CommandArgs) => {
         if (args.options.id && !validation.isValidGuid(args.options.id)) {
-          return `${args.options.id} is not a valid GUID`;
+          return `${args.options.id} in parameter id is not a valid GUID`;
         }
 
         if (args.options.listId &&
           !validation.isValidGuid(args.options.listId)) {
-          return `${args.options.listId} in option listId is not a valid GUID`;
+          return `${args.options.listId} in parameter listId is not a valid GUID`;
         }
 
         if (typeof args.options.viewOption !== 'undefined') {
           if (!this.viewOptions.some(viewOption => viewOption.toLocaleLowerCase() === args.options.viewOption?.toLowerCase())) {
-            return `The value of parameter zoneEmphasis must be ${this.viewOptions.join(', ')}`;
+            return `The value of parameter viewOptions must be ${this.viewOptions.join(', ')}`;
           }
         }
 
-        return validation.isValidSharePointUrl(args.options.siteUrl) && validation.isValidSharePointUrl(args.options.webUrl);
+        const isContentCenterUrlValid = validation.isValidSharePointUrl(args.options.contentCenterUrl);
+
+        if (isContentCenterUrlValid !== true) {
+          return isContentCenterUrlValid;
+        }
+
+        return validation.isValidSharePointUrl(args.options.webUrl);
       }
     );
   }
@@ -117,23 +129,23 @@ class SppModelRemoveCommand extends SpoCommand {
   }
 
   #initTypes(): void {
-    this.types.string.push('siteUrl', 'webUrl', 'id', 'title', 'listTitle', 'listId', 'listUrl', 'viewOption');
+    this.types.string.push('contentCenterUrl', 'webUrl', 'id', 'title', 'listTitle', 'listId', 'listUrl', 'viewOption');
   }
 
   public async commandAction(logger: Logger, args: CommandArgs): Promise<void> {
     try {
       if (this.verbose) {
-        await logger.log(`Applying ${args.options.id || args.options.title} model to ${args.options.listId || args.options.listUrl || args.options.listTitle}...`);
+        await logger.log(`Applying a model to a document library...`);
       }
 
-      const siteUrl = urlUtil.removeTrailingSlashes(args.options.siteUrl);
-      await spp.assertSiteIsContentCenter(siteUrl);
+      const contentCenterUrl = urlUtil.removeTrailingSlashes(args.options.contentCenterUrl);
+      await spp.assertSiteIsContentCenter(contentCenterUrl);
 
-      const model = await this.getModel(siteUrl, args);
-      const listInstance = await this.getListInfo(args);
+      const model = await this.getModel(contentCenterUrl, args);
+      const listInstance = await this.getDocumentLibraryInfo(args);
 
       const requestOptions: CliRequestOptions = {
-        url: `${siteUrl}/_api/machinelearning/publications`,
+        url: `${contentCenterUrl}/_api/machinelearning/publications`,
         headers: {
           accept: 'application/json;odata=nometadata',
           "Content-Type": 'application/json;odata=verbose'
@@ -144,7 +156,7 @@ class SppModelRemoveCommand extends SpoCommand {
             results: [
               {
                 ModelUniqueId: model.UniqueId,
-                TargetSiteUrl: args.options.webUrl,
+                TargetcontentCenterUrl: args.options.webUrl,
                 TargetWebServerRelativeUrl: urlUtil.getServerRelativePath(args.options.webUrl, ''),
                 TargetLibraryServerRelativeUrl: listInstance.RootFolder.ServerRelativeUrl,
                 ViewOption: args.options.viewOption ? args.options.viewOption : "NewViewAsDefault"
@@ -161,9 +173,9 @@ class SppModelRemoveCommand extends SpoCommand {
     }
   }
 
-  private getModel(siteUrl: string, args: CommandArgs): Promise<SppModel> {
+  private getModel(contentCenterUrl: string, args: CommandArgs): Promise<SppModel> {
     const requestOptions: CliRequestOptions = {
-      url: this.getCorrectRequestUrl(siteUrl, args),
+      url: this.getCorrectRequestUrl(contentCenterUrl, args),
       headers: {
         accept: 'application/json;odata=nometadata'
       },
@@ -173,15 +185,15 @@ class SppModelRemoveCommand extends SpoCommand {
     return request.get(requestOptions);
   }
 
-  private getCorrectRequestUrl(siteUrl: string, args: CommandArgs): string {
+  private getCorrectRequestUrl(contentCenterUrl: string, args: CommandArgs): string {
     if (args.options.id) {
-      return `${siteUrl}/_api/machinelearning/models/getbyuniqueid('${args.options.id}')`;
+      return `${contentCenterUrl}/_api/machinelearning/models/getbyuniqueid('${args.options.id}')`;
     }
 
-    return `${siteUrl}/_api/machinelearning/models/getbytitle('${formatting.encodeQueryParameter(args.options.title!)}')`;
+    return `${contentCenterUrl}/_api/machinelearning/models/getbytitle('${formatting.encodeQueryParameter(args.options.title!)}')`;
   }
 
-  private getListInfo(args: CommandArgs): Promise<ListInstance> {
+  private getDocumentLibraryInfo(args: CommandArgs): Promise<DocumentLibraryInstance> {
     let requestUrl = `${args.options.webUrl}/_api/web`;
 
     if (args.options.listId) {
@@ -203,7 +215,7 @@ class SppModelRemoveCommand extends SpoCommand {
       responseType: 'json'
     };
 
-    return request.get<any>(requestOptions);
+    return request.get<DocumentLibraryInstance>(requestOptions);
   }
 }
 

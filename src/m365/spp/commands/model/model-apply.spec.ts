@@ -4,7 +4,6 @@ import auth from '../../../../Auth.js';
 import { cli } from '../../../../cli/cli.js';
 import { CommandInfo } from '../../../../cli/CommandInfo.js';
 import { Logger } from '../../../../cli/Logger.js';
-import { CommandError } from '../../../../Command.js';
 import request from '../../../../request.js';
 import { telemetry } from '../../../../telemetry.js';
 import { pid } from '../../../../utils/pid.js';
@@ -12,6 +11,8 @@ import { session } from '../../../../utils/session.js';
 import { sinonUtil } from '../../../../utils/sinonUtil.js';
 import commands from '../../commands.js';
 import command from './model-apply.js';
+import { spp } from '../../../../utils/spp.js';
+import { CommandError } from '../../../../Command.js';
 
 describe(commands.MODEL_APPLY, () => {
   let log: string[];
@@ -23,6 +24,7 @@ describe(commands.MODEL_APPLY, () => {
     sinon.stub(telemetry, 'trackEvent').returns();
     sinon.stub(pid, 'getProcessName').returns('');
     sinon.stub(session, 'getId').returns('');
+    sinon.stub(spp, 'assertSiteIsContentCenter').resolves();
     auth.connection.active = true;
     commandInfo = cli.getCommandInfo(command);
   });
@@ -45,8 +47,7 @@ describe(commands.MODEL_APPLY, () => {
   afterEach(() => {
     sinonUtil.restore([
       request.get,
-      request.delete,
-      cli.promptForConfirmation
+      request.post
     ]);
   });
 
@@ -63,186 +64,371 @@ describe(commands.MODEL_APPLY, () => {
     assert.notStrictEqual(command.description, null);
   });
 
-  it('passes validation when required parameters are valid with id', async () => {
-    const actual = await command.validate({ options: { siteUrl: 'https://contoso.sharepoint.com/sites/sales', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f' } }, commandInfo);
+  it('passes validation when required parameters are valid with model id and list id', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d' } }, commandInfo);
     assert.strictEqual(actual, true);
   });
 
-  it('passes validation when required parameters are valid with title', async () => {
-    const actual = await command.validate({ options: { siteUrl: 'https://contoso.sharepoint.com/sites/sales', title: 'ModelName' } }, commandInfo);
+  it('passes validation when required parameters are valid with model title and list id', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d' } }, commandInfo);
     assert.strictEqual(actual, true);
   });
 
-  it('passes validation when required parameters are valid with id and force', async () => {
-    const actual = await command.validate({ options: { siteUrl: 'https://contoso.sharepoint.com/sites/sales', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', force: true } }, commandInfo);
+  it('passes validation when required parameters are valid with model id and list title', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listTitle: 'Documents' } }, commandInfo);
     assert.strictEqual(actual, true);
   });
 
-  it('fails validation when siteUrl is not valid', async () => {
-    const actual = await command.validate({ options: { siteUrl: 'invalidUrl', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f' } }, commandInfo);
+  it('passes validation when required parameters are valid with model id and list URL', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listUrl: '/Shared Documents' } }, commandInfo);
+    assert.strictEqual(actual, true);
+  });
+
+  it('passes validation when required parameters are valid with model title and list id and correct viewOption is provided', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'NewViewAsDefault' } }, commandInfo);
+    assert.strictEqual(actual, true);
+  });
+
+  it('fails validation when webUrl is not valid', async () => {
+    const actual = await command.validate({ options: { webUrl: 'invalidUrl', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'NewViewAsDefault' } }, commandInfo);
     assert.notStrictEqual(actual, true);
   });
 
-  it('fails validation when id is not valid', async () => {
-    const actual = await command.validate({ options: { siteUrl: 'https://contoso.sharepoint.com/sites/sales', id: 'foo' } }, commandInfo);
+  it('fails validation when contentCenterUrl is not valid', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'invalidUrl', title: 'ModelName', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'NewViewAsDefault' } }, commandInfo);
     assert.notStrictEqual(actual, true);
   });
 
-  it('correctly handles site is not Content Site', async () => {
+  it('fails validation when model id is not valid', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: 'invalidId', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'NewViewAsDefault' } }, commandInfo);
+    assert.notStrictEqual(actual, true);
+  });
+
+  it('fails validation when list id is not valid', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listId: 'invalidId', viewOption: 'NewViewAsDefault' } }, commandInfo);
+    assert.notStrictEqual(actual, true);
+  });
+
+  it('fails validation when viewOption is not valid', async () => {
+    const actual = await command.validate({ options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelName', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'InvalidViewOption' } }, commandInfo);
+    assert.notStrictEqual(actual, true);
+  });
+
+  it('apply model to document library by id and list id', async () => {
     sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
         return {
-          WebTemplateConfiguration: 'SITEPAGEPUBLISHING#0'
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
         };
       }
 
-      throw 'Invalid request';
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists(guid'421b1e42-794b-4c71-93ac-5ed92488b67d')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
     });
 
-    await assert.rejects(command.action(logger, { options: { verbose: true, siteUrl: 'https://contoso.sharepoint.com/sites/portal', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', force: true } }),
-      new CommandError('https://contoso.sharepoint.com/sites/portal is not a content site.'));
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', verbose: true } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "NewViewAsDefault"
+          }
+        ]
+      }
+    });
   });
 
-
-  it('correctly handles an access denied error', async () => {
+  it('apply model to document library by id and list title', async () => {
     sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists/getByTitle('Documents')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listTitle: 'Documents' } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "NewViewAsDefault"
+          }
+        ]
+      }
+    });
+  });
+
+  it('apply model to document library by title and list id', async () => {
+    sinon.stub(request, 'get').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbytitle('ModelTitle')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists(guid'421b1e42-794b-4c71-93ac-5ed92488b67d')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', title: 'ModelTitle', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d' } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "NewViewAsDefault"
+          }
+        ]
+      }
+    });
+  });
+
+  it('apply model to document library by id and list url', async () => {
+    sinon.stub(request, 'get').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/GetList('%2Fsites%2Fsales%2FShared%20Documents')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listUrl: '/Shared Documents' } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "NewViewAsDefault"
+          }
+        ]
+      }
+    });
+  });
+
+  it('apply model to document library by id and list id and DoNotChangeDefault viewOption', async () => {
+    sinon.stub(request, 'get').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists(guid'421b1e42-794b-4c71-93ac-5ed92488b67d')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'DoNotChangeDefault' } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "DoNotChangeDefault"
+          }
+        ]
+      }
+    });
+  });
+
+  it('apply model to document library by id and list id and TileViewAsDefault viewOption', async () => {
+    sinon.stub(request, 'get').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists(guid'421b1e42-794b-4c71-93ac-5ed92488b67d')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
+        return {
+          RootFolder: {
+            ServerRelativeUrl: '/sites/portal/Shared Documents'
+          },
+          BaseTemplate: 101
+        };
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    const stubPost = sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
+        return;
+      }
+
+      throw `${opts.url} is invalid request`;
+    });
+
+    await command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d', viewOption: 'DoNotChangeDefault' } });
+    assert.deepStrictEqual(stubPost.lastCall.args[0].data, {
+      __metadata: {
+        type: "Microsoft.Office.Server.ContentCenter.SPMachineLearningPublicationsEntityData"
+      },
+      Publications: {
+        results: [
+          {
+            ModelUniqueId: "9b1b1e42-794b-4c71-93ac-5ed92488b67f",
+            TargetcontentCenterUrl: "https://contoso.sharepoint.com/sites/sales",
+            TargetLibraryServerRelativeUrl: "/sites/portal/Shared Documents",
+            TargetWebServerRelativeUrl: "/sites/sales",
+            ViewOption: "DoNotChangeDefault"
+          }
+        ]
+      }
+    });
+  });
+
+  it('correctly handles error when hub site not found', async () => {
+    sinon.stub(request, 'get').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+        return {
+          UniqueId: '9b1b1e42-794b-4c71-93ac-5ed92488b67f'
+        };
+      }
+
+      if (opts.url === `https://contoso.sharepoint.com/sites/sales/_api/web/lists(guid'421b1e42-794b-4c71-93ac-5ed92488b67d')?$select=BaseTemplate,RootFolder/ServerRelativeUrl&$expand=RootFolder`) {
         throw {
           error: {
             "odata.error": {
+              code: "-1, Microsoft.SharePoint.Client.ResourceNotFoundException",
               message: {
                 lang: "en-US",
-                value: "Attempted to perform an unauthorized operation."
+                value: "List does not exist. The page you selected contains a list that does not exist. It may have been deleted by another user."
               }
             }
           }
         };
       }
 
-      throw 'Invalid request';
+      throw `${opts.url} is invalid request`;
     });
 
-    await assert.rejects(command.action(logger, { options: { verbose: true, siteUrl: 'https://contoso.sharepoint.com/sites/portal', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', force: true } }),
-      new CommandError('Attempted to perform an unauthorized operation.'));
-  });
-
-
-  it('deletes model by id', async () => {
-    const confirmationStub = sinon.stub(cli, 'promptForConfirmation').resolves(true);
-    sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
-        return {
-          WebTemplateConfiguration: 'CONTENTCTR#0'
-        };
-      }
-      throw 'Invalid request';
-    });
-
-    const stubDelete = sinon.stub(request, 'delete').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
+    sinon.stub(request, 'post').callsFake(async (opts) => {
+      if (opts.url === `https://contoso.sharepoint.com/sites/contentCenter/_api/machinelearning/publications`) {
         return;
       }
 
-      throw 'Invalid request';
+      throw `${opts.url} is invalid request`;
     });
 
-    await command.action(logger, { options: { siteUrl: 'https://contoso.sharepoint.com/sites/portal', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f' } });
-    assert.strictEqual(stubDelete.lastCall.args[0].url, `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`);
-    assert(confirmationStub.calledOnce);
-  });
-
-  it('does not delete model when confirmation is not accepted', async () => {
-    const confirmationStub = sinon.stub(cli, 'promptForConfirmation').resolves(false);
-    sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
-        return {
-          WebTemplateConfiguration: 'CONTENTCTR#0'
-        };
-      }
-      throw 'Invalid request';
-    });
-
-    const stubDelete = sinon.stub(request, 'delete').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
-        return;
-      }
-
-      throw 'Invalid request';
-    });
-
-    await command.action(logger, { options: { siteUrl: 'https://contoso.sharepoint.com/sites/portal', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f' } });
-    assert(stubDelete.notCalled);
-    assert(confirmationStub.calledOnce);
-  });
-
-  it('deletes model by id with force', async () => {
-    sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
-        return {
-          WebTemplateConfiguration: 'CONTENTCTR#0'
-        };
-      }
-      throw 'Invalid request';
-    });
-
-    const stubDelete = sinon.stub(request, 'delete').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('164720c8-35ee-4157-ba26-db6726264f9d')`) {
-        return;
-      }
-
-      throw 'Invalid request';
-    });
-
-    await command.action(logger, { options: { siteUrl: 'https://contoso.sharepoint.com/sites/portal', id: '164720c8-35ee-4157-ba26-db6726264f9d', force: true } });
-    assert.strictEqual(stubDelete.lastCall.args[0].url, `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('164720c8-35ee-4157-ba26-db6726264f9d')`);
-  });
-
-  it('deletes model when the the site URL has trailing slash', async () => {
-    const confirmationStub = sinon.stub(cli, 'promptForConfirmation').resolves(true);
-    sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
-        return {
-          WebTemplateConfiguration: 'CONTENTCTR#0'
-        };
-      }
-      throw 'Invalid request';
-    });
-
-    const stubDelete = sinon.stub(request, 'delete').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`) {
-        return;
-      }
-
-      throw 'Invalid request';
-    });
-
-    await command.action(logger, { options: { siteUrl: 'https://contoso.sharepoint.com/sites/portal/', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f' } });
-    assert.strictEqual(stubDelete.lastCall.args[0].url, `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbyuniqueid('9b1b1e42-794b-4c71-93ac-5ed92488b67f')`);
-    assert(confirmationStub.calledOnce);
-  });
-
-  it('deletes model by title', async () => {
-    const confirmationStub = sinon.stub(cli, 'promptForConfirmation').resolves(true);
-    sinon.stub(request, 'get').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/web?$select=WebTemplateConfiguration`) {
-        return {
-          WebTemplateConfiguration: 'CONTENTCTR#0'
-        };
-      }
-
-      throw 'Invalid request';
-    });
-
-    const stubDelete = sinon.stub(request, 'delete').callsFake(async (opts) => {
-      if (opts.url === `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbytitle('ModelName')`) {
-        return;
-      }
-
-      throw 'Invalid request';
-    });
-
-    await command.action(logger, { options: { siteUrl: 'https://contoso.sharepoint.com/sites/portal', title: 'ModelName' } });
-    assert.strictEqual(stubDelete.lastCall.args[0].url, `https://contoso.sharepoint.com/sites/portal/_api/machinelearning/models/getbytitle('ModelName')`);
-    assert(confirmationStub.calledOnce);
+    await assert.rejects(command.action(logger, { options: { webUrl: 'https://contoso.sharepoint.com/sites/sales', contentCenterUrl: 'https://contoso.sharepoint.com/sites/contentCenter', id: '9b1b1e42-794b-4c71-93ac-5ed92488b67f', listId: '421b1e42-794b-4c71-93ac-5ed92488b67d' } }), new CommandError('List does not exist. The page you selected contains a list that does not exist. It may have been deleted by another user.'));
   });
 });
